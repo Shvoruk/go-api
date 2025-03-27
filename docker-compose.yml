@@ -1,0 +1,21 @@
+services:
+  app:
+    build: ./
+    ports:
+      - "8080:${APP_PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  db:
+    image: mysql:9
+    ports:
+      - "3306:${DB_PORT}"
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 5s
+      retries: 5
+    env_file:
+      - .env
