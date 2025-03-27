@@ -8,10 +8,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the source code
-COPY *.go ./
+COPY . .
 
 # Build
-RUN go build -o go-api ./main.go
+RUN go build -o go-api ./cmd/main.go
 
 FROM alpine:latest
 
