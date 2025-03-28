@@ -13,9 +13,11 @@ services:
     image: mysql:9
     ports:
       - "3306:${DB_PORT}"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d
+    env_file:
+      - .env
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 5s
       retries: 5
-    env_file:
-      - .env
