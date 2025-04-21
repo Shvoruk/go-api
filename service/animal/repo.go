@@ -3,8 +3,8 @@ package animal
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/Shvoruk/go-api/types"
-	"log"
 )
 
 type Repo struct {
@@ -12,89 +12,124 @@ type Repo struct {
 }
 
 func NewRepo(db *sql.DB) *Repo {
-	return &Repo{db}
+	return &Repo{db: db}
 }
 
-func (r *Repo) GetAll() ([]types.Animal, error) {
-	rows, err := r.db.Query("SELECT id, name, category FROM animals")
+func (r *Repo) GetAllByCategory(category string) ([]types.Animal, error) {
+	query := "SELECT id, status, name, img_url FROM animals WHERE category = ?"
+
+	rows, err := r.db.Query(query, category)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Animal|GetAllByCategory: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Println(err)
-		}
-	}(rows)
+	defer rows.Close()
 
 	var animals []types.Animal
 	for rows.Next() {
 		var a types.Animal
-		if err := rows.Scan(&a.ID, &a.Name, &a.Category); err != nil {
-			return nil, err
+		err = rows.Scan(
+			&a.ID,
+			&a.Status,
+			&a.Name,
+			&a.ImageURL,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("Abimal|GetAllByCategory: %w", err)
 		}
 		animals = append(animals, a)
 	}
 	return animals, nil
 }
 
-func (r *Repo) Get(id string) (*types.Animal, error) {
-	row := r.db.QueryRow("SELECT id, name, category FROM animals WHERE id = ?", id)
+func (r *Repo) GetAllByUser(userId int) ([]types.Animal, error) {
+	query := "SELECT id, status, name, img_url FROM animals WHERE user_id = ?"
 
-	var a types.Animal
-	if err := row.Scan(&a.ID, &a.Name, &a.Category); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+	rows, err := r.db.Query(query, userId)
+	if err != nil {
+		return nil, fmt.Errorf("Animal|GetAllByUser: %w", err)
+	}
+	defer rows.Close()
+
+	var animals []types.Animal
+	for rows.Next() {
+		var a types.Animal
+		err = rows.Scan(
+			&a.ID,
+			&a.Status,
+			&a.Name,
+			&a.ImageURL,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("Animal|GetAllByUser: %w", err)
 		}
-		return nil, err
+		animals = append(animals, a)
+	}
+	return animals, nil
+}
+
+func (r *Repo) Get(id int) (*types.Animal, error) {
+	query := "SELECT * FROM animals WHERE id = ?"
+	var a types.Animal
+	err := r.db.QueryRow(query, id).Scan(
+		&a.ID,
+		&a.UserID,
+		&a.Status,
+		&a.Name,
+		&a.Sex,
+		&a.Breed,
+		&a.Size,
+		&a.AgeInMonth,
+		&a.Category,
+		&a.ImageURL,
+		&a.Description,
+		&a.ContactInfo,
+		&a.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("Animal|Get: %w", err)
 	}
 	return &a, nil
 }
 
-func (r *Repo) Create(a *types.Animal) (*types.Animal, error) {
-	res, err := r.db.Exec(
-		"INSERT INTO animals (name, category) VALUES (?, ?)",
-		a.Name, a.Category,
+func (r *Repo) Create(a *types.Animal) (int, error) {
+	query := "INSERT INTO animals (user_id, status, name, sex, breed, size, age_in_month, category, img_url, description, contact_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	res, err := r.db.Exec(query,
+		a.UserID,
+		a.Status,
+		a.Name,
+		a.Sex,
+		a.Breed,
+		a.Size,
+		a.AgeInMonth,
+		a.Category,
+		a.ImageURL,
+		a.Description,
+		a.ContactInfo,
 	)
 	if err != nil {
-		return nil, err
+		return 0, fmt.Errorf("Animal|Create: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return nil, err
+		return 0, fmt.Errorf("Animal|Create: %w", err)
 	}
-	a.ID = int(id)
-	return a, nil
+	return int(id), nil
 }
 
-func (r *Repo) Update(a *types.Animal) (*types.Animal, error) {
-	res, err := r.db.Exec(
-		"UPDATE animals SET name = ?, category = ? WHERE id = ?",
-		a.Name, a.Category, a.ID,
-	)
+func (r *Repo) Delete(userId int, id int) error {
+	query := `DELETE FROM animals WHERE user_id = ? AND id = ?`
+	res, err := r.db.Exec(query, userId, id)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("Animal|Delete: %w", err)
 	}
-	rows, err := res.RowsAffected()
+	aff, err := res.RowsAffected()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("Animal|Delete: %w", err)
 	}
-	if rows == 0 {
-		return nil, sql.ErrNoRows
-	}
-	return a, nil
-}
-
-func (r *Repo) Delete(id string) error {
-	res, err := r.db.Exec("DELETE FROM animals WHERE id = ?", id)
-	if err != nil {
-		return err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
+	if aff == 0 {
 		return sql.ErrNoRows
 	}
 	return nil

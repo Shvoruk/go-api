@@ -3,107 +3,195 @@ package animal
 import (
 	"database/sql"
 	"errors"
-	"fmt"
-	"github.com/Shvoruk/go-api/types"
-	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
 	"strconv"
+
+	"github.com/Shvoruk/go-api/auth"
+	"github.com/Shvoruk/go-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	repo types.AnimalRepo
 }
 
-func NewHandler(repo types.AnimalRepo) *Handler {
-	return &Handler{repo: repo}
+func NewHandler(r types.AnimalRepo) *Handler {
+	return &Handler{repo: r}
 }
 
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
-	api := router.Group("/api/v1")
+	public := router.Group("/api/v1")
 	{
-		api.GET("/animals", h.handleGetAll)
-		api.POST("/animals", h.handleCreate)
-		api.GET("/animals/:id", h.handleGetByID)
-		api.PUT("/animals/:id", h.handleUpdateByID)
-		api.DELETE("/animals/:id", h.handleDeleteByID)
+		public.GET("/animals/:id", h.handleGet)
+		public.GET("/animals", h.handleGetAllByCategory)
+	}
+
+	protected := router.Group("/api/v1")
+	protected.Use(auth.Middleware())
+	{
+		protected.GET("/animals/my", h.handleGetAllByUser)
+		protected.POST("/animals", h.handleCreate)
+		protected.DELETE("/animals/:id", h.handleDelete)
 	}
 }
 
-func (h *Handler) handleGetAll(c *gin.Context) {
-	animals, err := h.repo.GetAll()
+// handleGet godoc
+//
+//	@Summary		Retrieve a specific animal by ID
+//	@Description	Gets detailed information about an animal using its numeric ID.
+//	@Tags			animals
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		int					true	"Animal ID"
+//	@Success		200	{object}	types.Animal		"Successful operation"
+//	@Failure		400	{object}	map[string]string	"Invalid id parameter"
+//	@Failure		404	{object}	map[string]string	"Animal not found"
+//	@Failure		500	{object}	map[string]string	"Internal server error"
+//	@Router			/api/v1/animals/{id} [get]
+func (h *Handler) handleGet(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Someone messed up"})
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	a, err := h.repo.Get(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		log.Println(err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if a == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.JSON(http.StatusOK, a)
+}
+
+// handleGetAllByCategory godoc
+//
+//	@Summary		Retrieve animals by category
+//	@Description	Retrieves a list of animals filtered by the specified category.
+//	@Tags			animals
+//	@Accept			json
+//	@Produce		json
+//	@Param			category	query		string				false	"Animal category"
+//	@Success		200			{array}		types.Animal		"List of animals"
+//	@Failure		500			{object}	map[string]string	"Internal server error"
+//	@Router			/api/v1/animals [get]
+func (h *Handler) handleGetAllByCategory(c *gin.Context) {
+	category := c.Query("category")
+	animals, err := h.repo.GetAllByCategory(category)
+	if err != nil {
+		log.Println(err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 	c.JSON(http.StatusOK, animals)
 }
 
-func (h *Handler) handleGetByID(c *gin.Context) {
-	id := c.Param("id")
-	animal, err := h.repo.Get(id)
-	if err != nil || animal == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": fmt.Sprintf("Animal with ID:%s not found", id),
-		})
+// handleGetAllByUser godoc
+//
+//	@Summary		Retrieve authenticated user's animals
+//	@Description	Retrieves a list of animals that belong to the authenticated user.
+//	@Tags			animals
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{array}		types.Animal		"List of user's animals"
+//	@Failure		401	{object}	map[string]string	"Unauthorized"
+//	@Failure		500	{object}	map[string]string	"Internal server error"
+//	@Router			/api/v1/animals/my [get]
+func (h *Handler) handleGetAllByUser(c *gin.Context) {
+	userID, ok := c.Get("user_id")
+	if !ok {
+		c.Status(http.StatusUnauthorized)
 		return
 	}
-	c.JSON(http.StatusOK, animal)
-}
-
-func (h *Handler) handleCreate(c *gin.Context) {
-	var a types.Animal
-	if err := c.BindJSON(&a); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
-		return
-	}
-	newA, err := h.repo.Create(&a)
+	animals, err := h.repo.GetAllByUser(userID.(int))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Someone messed up"})
 		log.Println(err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
-	c.JSON(http.StatusCreated, newA)
+	c.JSON(http.StatusOK, animals)
 }
 
-func (h *Handler) handleUpdateByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+// handleCreate godoc
+//
+//	@Summary		Create a new animal record
+//	@Description	Creates a new animal record for the authenticated user.
+//	@Tags			animals
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			animal	body		types.Animal		true	"Animal data"
+//	@Success		201		{object}	map[string]int		"ID of the newly created animal"
+//	@Failure		400		{object}	map[string]string	"Invalid request body"
+//	@Failure		401		{object}	map[string]string	"Unauthorized"
+//	@Failure		500		{object}	map[string]string	"Internal server error"
+//	@Router			/api/v1/animals [post]
+func (h *Handler) handleCreate(c *gin.Context) {
+	userID, ok := c.Get("user_id")
+	if !ok {
+		c.Status(http.StatusUnauthorized)
 		return
 	}
 	var a types.Animal
-	a.ID = id
-	if err := c.BindJSON(&a); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+	if err := c.ShouldBindJSON(&a); err != nil {
+		c.Status(http.StatusBadRequest)
 		return
 	}
-	newA, err := h.repo.Update(&a)
+	// Assign the user ID from context
+	a.UserID = userID.(int)
+
+	newID, err := h.repo.Create(&a)
 	if err != nil {
+		log.Println(err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": newID})
+}
+
+// handleDelete godoc
+//
+//	@Summary		Delete an animal record
+//	@Description	Deletes an animal record if it belongs to the authenticated user.
+//	@Tags			animals
+//	@Accept			json
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			id	path	int	true	"Animal ID"
+//	@Success		204	"No Content"
+//	@Failure		400	{object}	map[string]string	"Invalid id parameter"
+//	@Failure		401	{object}	map[string]string	"Unauthorized"
+//	@Failure		404	{object}	map[string]string	"Animal not found"
+//	@Failure		500	{object}	map[string]string	"Internal server error"
+//	@Router			/api/v1/animals/{id} [delete]
+func (h *Handler) handleDelete(c *gin.Context) {
+	userID, ok := c.Get("user_id")
+	if !ok {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+	animalID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if err = h.repo.Delete(userID.(int), animalID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": fmt.Sprintf("Animal with ID:%d not found", id),
-			})
+			c.Status(http.StatusNotFound)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Someone messed up"})
 		log.Println(err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
-	c.JSON(http.StatusOK, newA)
-}
-
-func (h *Handler) handleDeleteByID(c *gin.Context) {
-	id := c.Param("id")
-	err := h.repo.Delete(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": fmt.Sprintf("Animal with ID:%s not found", id),
-		})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": fmt.Sprintf("Animal with ID:%s deleted", id),
-	})
+	c.Status(http.StatusNoContent)
 }

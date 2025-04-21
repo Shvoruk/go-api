@@ -1,23 +1,45 @@
+name: beastybonds
+
 services:
-  app:
+
+  go-api:
     build: ./
     ports:
-      - "8080:${APP_PORT}"
+      - "8080:8080"
+    environment:
+      - DBUser=${MYSQL_USER}
+      - DBPassword=${MYSQL_PASSWORD}
+      - DBAddress=${MYSQL_HOST}
+      - DBName=${MYSQL_DATABASE}
+      - JWTSecret=${JWTSecret}
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - .env
+    restart: on-failure:5
 
   db:
     image: mysql:9
     ports:
-      - "3306:${DB_PORT}"
+      - "3306:3306"
     volumes:
       - ./db/init:/docker-entrypoint-initdb.d
-    env_file:
-      - .env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      interval: 5s
+      interval: 10s
+      timeout: 3s
       retries: 5
+    restart: on-failure:5
+
+networks:
+  default:
+    driver: bridge

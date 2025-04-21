@@ -1,21 +1,17 @@
 package config
 
 import (
-	"fmt"
 	"github.com/joho/godotenv"
 	"os"
 )
 
+// Config holds application settings
 type Config struct {
-	DBHost                 string
-	DBPort                 string
-	DBAddress              string
-	DBName                 string
-	DBUser                 string
-	DBPassword             string
-	APP_PORT               string
-	JWTSecret              string
-	JWTExpirationInSeconds string
+	DBAddress  string
+	DBName     string
+	DBUser     string
+	DBPassword string
+	JWTSecret  string
 }
 
 var Envs = initConfig()
@@ -23,12 +19,10 @@ var Envs = initConfig()
 func initConfig() Config {
 	_ = godotenv.Load()
 	return Config{
-		DBUser:                 os.Getenv("DB_USER"),
-		DBPassword:             os.Getenv("DB_PASSWORD"),
-		DBAddress:              fmt.Sprintf("%s:%s", os.Getenv("DB_HOST"), os.Getenv("DB_PORT")),
-		DBName:                 os.Getenv("DB_NAME"),
-		APP_PORT:               os.Getenv("APP_PORT"),
-		JWTSecret:              os.Getenv("JWT_SECRET"),
-		JWTExpirationInSeconds: os.Getenv("JWT_EXPIRATION_IN_SECONDS"),
+		DBUser:     os.Getenv("MYSQL_USER"),
+		DBPassword: os.Getenv("MYSQL_PASSWORD"),
+		DBAddress:  os.Getenv("MYSQL_HOST"),
+		DBName:     os.Getenv("MYSQL_DATABASE"),
+		JWTSecret:  os.Getenv("JWT_SECRET"),
 	}
 }
